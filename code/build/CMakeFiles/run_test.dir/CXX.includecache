@@ -6,11 +6,11 @@
 
 #IncludeRegexTransform: 
 
-/mnt/c/cmu/robot/16782_F26_HW1/code/include/astar_3d_planner.h
+/mnt/c/cmu/robot/16782_F26_HW1/16-782 hw1/code/include/astar_3d_planner.h
 
-/mnt/c/cmu/robot/16782_F26_HW1/code/src/astar_3d_planner.cpp
+/mnt/c/cmu/robot/16782_F26_HW1/16-782 hw1/code/src/astar_3d_planner.cpp
 ../include/astar_3d_planner.h
-/mnt/c/cmu/robot/16782_F26_HW1/code/include/astar_3d_planner.h
+/mnt/c/cmu/robot/16782_F26_HW1/16-782 hw1/code/include/astar_3d_planner.h
 iostream
 -
 vector

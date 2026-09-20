@@ -4,7 +4,7 @@
 # compile CXX with /usr/bin/c++
 CXX_FLAGS =   -std=gnu++14
 
-CXX_DEFINES = -DMAPS_DIR=\"/mnt/c/cmu/robot/16782_F26_HW1/code/maps\" -DOUTPUT_DIR=\"/mnt/c/cmu/robot/16782_F26_HW1/code/output\"
+CXX_DEFINES = -DMAPS_DIR="\"/mnt/c/cmu/robot/16782_F26_HW1/16-782 hw1/code/maps\"" -DOUTPUT_DIR="\"/mnt/c/cmu/robot/16782_F26_HW1/16-782 hw1/code/output\""
 
-CXX_INCLUDES = -I/mnt/c/cmu/robot/16782_F26_HW1/code/include 
+CXX_INCLUDES = -I"/mnt/c/cmu/robot/16782_F26_HW1/16-782 hw1/code/include" 
 
