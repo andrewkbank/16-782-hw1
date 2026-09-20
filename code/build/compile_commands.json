@@ -1,0 +1,27 @@
+[
+{
+  "directory": "/mnt/c/cmu/robot/16782_F26_HW1/code/build",
+  "command": "/usr/bin/c++  -DMAPS_DIR=\\\"/mnt/c/cmu/robot/16782_F26_HW1/code/maps\\\" -DOUTPUT_DIR=\\\"/mnt/c/cmu/robot/16782_F26_HW1/code/output\\\" -I/mnt/c/cmu/robot/16782_F26_HW1/code/include    -std=gnu++14 -o CMakeFiles/run_test.dir/src/planner.cpp.o -c /mnt/c/cmu/robot/16782_F26_HW1/code/src/planner.cpp",
+  "file": "/mnt/c/cmu/robot/16782_F26_HW1/code/src/planner.cpp"
+},
+{
+  "directory": "/mnt/c/cmu/robot/16782_F26_HW1/code/build",
+  "command": "/usr/bin/c++  -DMAPS_DIR=\\\"/mnt/c/cmu/robot/16782_F26_HW1/code/maps\\\" -DOUTPUT_DIR=\\\"/mnt/c/cmu/robot/16782_F26_HW1/code/output\\\" -I/mnt/c/cmu/robot/16782_F26_HW1/code/include    -std=gnu++14 -o CMakeFiles/run_test.dir/src/greedy_planner.cpp.o -c /mnt/c/cmu/robot/16782_F26_HW1/code/src/greedy_planner.cpp",
+  "file": "/mnt/c/cmu/robot/16782_F26_HW1/code/src/greedy_planner.cpp"
+},
+{
+  "directory": "/mnt/c/cmu/robot/16782_F26_HW1/code/build",
+  "command": "/usr/bin/c++  -DMAPS_DIR=\\\"/mnt/c/cmu/robot/16782_F26_HW1/code/maps\\\" -DOUTPUT_DIR=\\\"/mnt/c/cmu/robot/16782_F26_HW1/code/output\\\" -I/mnt/c/cmu/robot/16782_F26_HW1/code/include    -std=gnu++14 -o CMakeFiles/run_test.dir/src/bfs_planner.cpp.o -c /mnt/c/cmu/robot/16782_F26_HW1/code/src/bfs_planner.cpp",
+  "file": "/mnt/c/cmu/robot/16782_F26_HW1/code/src/bfs_planner.cpp"
+},
+{
+  "directory": "/mnt/c/cmu/robot/16782_F26_HW1/code/build",
+  "command": "/usr/bin/c++  -DMAPS_DIR=\\\"/mnt/c/cmu/robot/16782_F26_HW1/code/maps\\\" -DOUTPUT_DIR=\\\"/mnt/c/cmu/robot/16782_F26_HW1/code/output\\\" -I/mnt/c/cmu/robot/16782_F26_HW1/code/include    -std=gnu++14 -o CMakeFiles/run_test.dir/src/astar_3d_planner.cpp.o -c /mnt/c/cmu/robot/16782_F26_HW1/code/src/astar_3d_planner.cpp",
+  "file": "/mnt/c/cmu/robot/16782_F26_HW1/code/src/astar_3d_planner.cpp"
+},
+{
+  "directory": "/mnt/c/cmu/robot/16782_F26_HW1/code/build",
+  "command": "/usr/bin/c++  -DMAPS_DIR=\\\"/mnt/c/cmu/robot/16782_F26_HW1/code/maps\\\" -DOUTPUT_DIR=\\\"/mnt/c/cmu/robot/16782_F26_HW1/code/output\\\" -I/mnt/c/cmu/robot/16782_F26_HW1/code/include    -std=gnu++14 -o CMakeFiles/run_test.dir/src/runtest.cpp.o -c /mnt/c/cmu/robot/16782_F26_HW1/code/src/runtest.cpp",
+  "file": "/mnt/c/cmu/robot/16782_F26_HW1/code/src/runtest.cpp"
+}
+]

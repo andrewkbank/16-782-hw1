@@ -1,0 +1,30 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/mnt/c/cmu/robot/16782_F26_HW1/code/include/astar_3d_planner.h
+
+/mnt/c/cmu/robot/16782_F26_HW1/code/src/astar_3d_planner.cpp
+../include/astar_3d_planner.h
+/mnt/c/cmu/robot/16782_F26_HW1/code/include/astar_3d_planner.h
+iostream
+-
+vector
+-
+queue
+-
+chrono
+-
+cmath
+-
+climits
+-
+algorithm
+-
+unordered_map
+-
+
