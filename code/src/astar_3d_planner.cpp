@@ -4,7 +4,7 @@
  *
  * Anytime Space-Time Planner:
  * 1. O(1) Precomputed Heuristic Map
- * 2. Fast 2D-Bounded A* (Finds fast upper-bound cost)
+ * 2. Fast 2D-Bounded A* (Finds fast upper-bound cost & outposts)
  * 3. Thorough Pareto 3D A* (Optimizes using outposts & branch/bound)
  *
  *=================================================================*/
@@ -23,7 +23,7 @@
 
 // --- DATA STRUCTURES ---
 struct FastNode {
-    int x, y, cost, time_steps, parent_idx;
+    int x, y, cost, time_steps, min_path_cost, parent_idx;
 };
 
 struct ThoroughNode {
@@ -55,7 +55,7 @@ static std::vector<PathWaypoint> cached_path;
 static size_t cached_step_idx = 0;
 static std::vector<int> h_grid;
 static bool h_grid_initialized = false;
-const double TIME_BUDGET_MS = 100.0; // Max time allowed per turn
+const double TIME_BUDGET_MS = 950.0; // Max time allowed per turn
 
 void astar_3d_planner(
     int* map, int collision_thresh, int x_size, int y_size,
@@ -77,7 +77,6 @@ void astar_3d_planner(
     // Follow Cached Path if Valid
     if (!cached_path.empty() && cached_step_idx < cached_path.size()) {
         PathWaypoint next_wp = cached_path[cached_step_idx];
-        // Ensure next step is adjacent and valid
         if (std::abs(next_wp.x - robotposeX) <= 1 && std::abs(next_wp.y - robotposeY) <= 1) {
             int next_map_idx = GETMAPINDEX(next_wp.x, next_wp.y, x_size, y_size);
             if (map[next_map_idx] >= 0 && map[next_map_idx] < collision_thresh) {
@@ -86,7 +85,6 @@ void astar_3d_planner(
                 return;
             }
         }
-        // Cache invalidated (e.g., obstacle appeared), clear it
         cached_path.clear(); cached_step_idx = 0;
     }
 
@@ -137,16 +135,12 @@ void astar_3d_planner(
     }
     if (min_map_cost == INT_MAX) min_map_cost = 0;
 
-    // Fast lookups for target trajectory
-    std::unordered_map<int, int> target_map_at_time;
     std::vector<std::vector<int>> target_visit_times(total_cells);
-    target_map_at_time.reserve(target_steps - curr_time);
     
     for (int t = 0; t < target_steps; t++) {
         int tx = target_traj[t], ty = target_traj[t + target_steps];
         if (tx >= 1 && tx <= x_size && ty >= 1 && ty <= y_size) {
             int idx = GETMAPINDEX(tx, ty, x_size, y_size);
-            if (t >= curr_time) target_map_at_time[t] = idx;
             target_visit_times[idx].push_back(t);
         }
     }
@@ -159,18 +153,19 @@ void astar_3d_planner(
     int start_max_time_avail = (target_steps - 1) - curr_time;
     int start_h = (start_spatial_dist <= start_max_time_avail) ? (start_spatial_dist * min_map_cost) : 999999;
 
-    // --- 2. PHASE 1: FAST 2D-BOUNDED A* ---
+    // --- 2. PHASE 1: FAST 2D-BOUNDED A* (WITH OUTPOST WAITING) ---
     std::priority_queue<PQElement, std::vector<PQElement>, ComparePQ> fast_pq;
     std::vector<FastNode> fast_pool;
     fast_pool.reserve(50000);
     std::vector<int> min_cost(total_cells, INT_MAX);
     std::vector<int> min_time(total_cells, INT_MAX);
 
-    fast_pool.push_back({robotposeX, robotposeY, 0, 0, -1});
+    fast_pool.push_back({robotposeX, robotposeY, 0, 0, start_cell_cost, -1});
     fast_pq.push({start_h, 0, 0});
     min_cost[start_idx] = 0; min_time[start_idx] = 0;
 
     int fast_goal_idx = -1;
+    int fast_intercept_tau = -1;
     int best_total_cost = INT_MAX; // Upper bound
     int fast_nodes = 0;
 
@@ -184,14 +179,22 @@ void astar_3d_planner(
         fast_nodes++;
         int arrival_time = curr_time + curr_node.time_steps;
 
-        if (arrival_time < target_steps) {
-            auto it = target_map_at_time.find(arrival_time);
-            if (it != target_map_at_time.end() && it->second == map_idx) {
-                fast_goal_idx = curr_idx;
-                best_total_cost = curr_cost;
-                break;
+        // Valid Intercept & Outpost Padding Check
+        bool found_intercept = false;
+        const auto& visits = target_visit_times[map_idx];
+        for (int tau : visits) {
+            if (tau >= arrival_time) {
+                int wait_cost = (tau - arrival_time) * curr_node.min_path_cost;
+                int total_cand_cost = curr_cost + wait_cost;
+                if (total_cand_cost < best_total_cost) {
+                    best_total_cost = total_cand_cost;
+                    fast_goal_idx = curr_idx;
+                    fast_intercept_tau = tau;
+                    found_intercept = true;
+                }
             }
         }
+        if (found_intercept) break; // Break early once a viable upper bound path is secured
 
         if (arrival_time + 1 >= target_steps) continue;
 
@@ -201,7 +204,10 @@ void astar_3d_planner(
                 int nidx = GETMAPINDEX(nextX, nextY, x_size, y_size);
                 int cell_cost = map[nidx];
                 if (cell_cost >= 0 && cell_cost < collision_thresh) {
-                    int next_cost = curr_cost + cell_cost, next_time = curr_node.time_steps + 1;
+                    int next_cost = curr_cost + cell_cost;
+                    int next_time = curr_node.time_steps + 1;
+                    int next_min_path = std::min(curr_node.min_path_cost, cell_cost);
+
                     if (next_cost >= min_cost[nidx] && next_time >= min_time[nidx]) continue;
                     
                     if (next_cost < min_cost[nidx]) min_cost[nidx] = next_cost;
@@ -209,7 +215,7 @@ void astar_3d_planner(
 
                     int sd = h_grid[nidx];
                     int h = (sd <= (target_steps - 1) - (curr_time + next_time)) ? (sd * min_map_cost) : 999999;
-                    fast_pool.push_back({nextX, nextY, next_cost, next_time, curr_idx});
+                    fast_pool.push_back({nextX, nextY, next_cost, next_time, next_min_path, curr_idx});
                     fast_pq.push({next_cost + h, next_cost, (int)fast_pool.size() - 1});
                 }
             }
@@ -227,78 +233,74 @@ void astar_3d_planner(
     visited[start_idx].g1 = 0; visited[start_idx].m1 = start_cell_cost;
 
     int thorough_goal_idx = -1;
-    int best_intercept_tau = -1;
+    int thorough_intercept_tau = -1;
     int thorough_nodes = 0;
     bool hit_time_limit = false;
 
-    // Only run Thorough A* if Fast A* succeeded. (If Fast failed, no valid path exists anyway)
-    if (fast_goal_idx != -1) {
-        while (!thorough_pq.empty()) {
-            // Check time every 1024 nodes
-            if ((thorough_nodes & 1023) == 0) { 
-                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::high_resolution_clock::now() - start_time).count();
-                if (elapsed >= TIME_BUDGET_MS) { hit_time_limit = true; break; }
-            }
+    while (!thorough_pq.empty()) {
+        if ((thorough_nodes & 1023) == 0) { 
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::high_resolution_clock::now() - start_time).count();
+            if (elapsed >= TIME_BUDGET_MS) { hit_time_limit = true; break; }
+        }
 
-            PQElement top = thorough_pq.top(); thorough_pq.pop();
-            if (top.f >= best_total_cost) break; // Branch and Bound prune!
+        PQElement top = thorough_pq.top(); thorough_pq.pop();
+        if (top.f >= best_total_cost) break; // Branch and Bound prune!
 
-            int curr_idx = top.idx;
-            ThoroughNode curr_node = thorough_pool[curr_idx];
-            int map_idx = GETMAPINDEX(curr_node.x, curr_node.y, x_size, y_size);
-            thorough_nodes++;
+        int curr_idx = top.idx;
+        ThoroughNode curr_node = thorough_pool[curr_idx];
+        int map_idx = GETMAPINDEX(curr_node.x, curr_node.y, x_size, y_size);
+        thorough_nodes++;
 
-            const auto& visits = target_visit_times[map_idx];
-            for (int tau : visits) {
-                if (tau >= curr_node.t) {
-                    int wait_cost = (tau - curr_node.t) * curr_node.min_path_cost;
-                    int total_cand_cost = curr_node.g_cost + wait_cost;
-                    if (total_cand_cost < best_total_cost) {
-                        best_total_cost = total_cand_cost;
-                        thorough_goal_idx = curr_idx;
-                        best_intercept_tau = tau;
-                    }
+        const auto& visits = target_visit_times[map_idx];
+        for (int tau : visits) {
+            if (tau >= curr_node.t) {
+                int wait_cost = (tau - curr_node.t) * curr_node.min_path_cost;
+                int total_cand_cost = curr_node.g_cost + wait_cost;
+                if (total_cand_cost < best_total_cost) {
+                    best_total_cost = total_cand_cost;
+                    thorough_goal_idx = curr_idx;
+                    thorough_intercept_tau = tau;
                 }
             }
+        }
 
-            if (curr_node.t + 1 >= target_steps) continue;
-            int next_t = curr_node.t + 1;
+        if (curr_node.t + 1 >= target_steps) continue;
+        int next_t = curr_node.t + 1;
 
-            for (int dir = 0; dir < NUMOFDIRS; dir++) {
-                int nextX = curr_node.x + dX[dir], nextY = curr_node.y + dY[dir];
-                if (nextX >= 1 && nextX <= x_size && nextY >= 1 && nextY <= y_size) {
-                    int nidx = GETMAPINDEX(nextX, nextY, x_size, y_size);
-                    int cell_cost = map[nidx];
+        for (int dir = 0; dir < NUMOFDIRS; dir++) {
+            int nextX = curr_node.x + dX[dir], nextY = curr_node.y + dY[dir];
+            if (nextX >= 1 && nextX <= x_size && nextY >= 1 && nextY <= y_size) {
+                int nidx = GETMAPINDEX(nextX, nextY, x_size, y_size);
+                int cell_cost = map[nidx];
 
-                    if (cell_cost >= 0 && cell_cost < collision_thresh) {
-                        int next_g = curr_node.g_cost + cell_cost;
-                        int next_min_path = std::min(curr_node.min_path_cost, cell_cost);
+                if (cell_cost >= 0 && cell_cost < collision_thresh) {
+                    int next_g = curr_node.g_cost + cell_cost;
+                    int next_min_path = std::min(curr_node.min_path_cost, cell_cost);
 
-                        int sd = h_grid[nidx];
-                        int h = (sd <= (target_steps - 1) - next_t) ? (sd * min_map_cost) : 999999;
-                        int next_f = next_g + h;
-                        
-                        if (next_f >= best_total_cost) continue;
+                    int sd = h_grid[nidx];
+                    int h = (sd <= (target_steps - 1) - next_t) ? (sd * min_map_cost) : 999999;
+                    int next_f = next_g + h;
+                    
+                    if (next_f >= best_total_cost) continue;
 
-                        bool dominated = false;
-                        auto& p = visited[nidx];
-                        if ((p.g1 <= next_g && p.m1 <= next_min_path) || 
-                            (p.g2 <= next_g && p.m2 <= next_min_path)) dominated = true;
+                    bool dominated = false;
+                    auto& p = visited[nidx];
+                    if ((p.g1 <= next_g && p.m1 <= next_min_path) || 
+                        (p.g2 <= next_g && p.m2 <= next_min_path)) dominated = true;
 
-                        if (!dominated) {
-                            if (next_g <= p.g1 && next_min_path <= p.m1) { p.g1 = next_g; p.m1 = next_min_path; }
-                            else if (next_g <= p.g2 && next_min_path <= p.m2) { p.g2 = next_g; p.m2 = next_min_path; }
-                            else if (p.g1 == INT_MAX) { p.g1 = next_g; p.m1 = next_min_path; }
-                            else if (p.g2 == INT_MAX) { p.g2 = next_g; p.m2 = next_min_path; }
-                            else {
-                                if (p.g1 > p.g2) { p.g1 = next_g; p.m1 = next_min_path; }
-                                else { p.g2 = next_g; p.m2 = next_min_path; }
-                            }
-
-                            thorough_pool.push_back({nextX, nextY, next_t, next_g, next_min_path, curr_idx});
-                            thorough_pq.push({next_f, next_g, (int)thorough_pool.size() - 1});
+                    if (!dominated) {
+                        if (next_g <= p.g1 && next_min_path <= p.m1) { p.g1 = next_g; p.m1 = next_min_path; }
+                        else if (next_g <= p.g2 && next_min_path <= p.m2) { p.g2 = next_g; p.m2 = next_min_path; }
+                        else if (p.g1 == INT_MAX) { p.g1 = next_g; p.m1 = next_min_path; }
+                        else if (p.g2 == INT_MAX) { p.g2 = next_g; p.m2 = next_min_path; }
+                        else {
+                            if (p.g1 > p.g2) { p.g1 = next_g; p.m1 = next_min_path; }
+                            else { p.g2 = next_g; p.m2 = next_min_path; }
                         }
+
+                        thorough_pool.push_back({nextX, nextY, next_t, next_g, next_min_path, curr_idx});
+                        thorough_pq.push({next_f, next_g, (int)thorough_pool.size() - 1});
                     }
                 }
             }
@@ -307,56 +309,78 @@ void astar_3d_planner(
 
     // --- 4. RECONSTRUCT BEST PATH ---
     std::vector<PathWaypoint> travel_path;
+    int selected_goal_idx = -1;
+    int selected_intercept_tau = -1;
+    bool using_thorough = false;
 
     if (thorough_goal_idx != -1) {
-        // Optimized Thorough Path
-        int trace_idx = thorough_goal_idx;
-        while (trace_idx != 0 && trace_idx != -1) {  // Stop before start node (idx 0)
-            travel_path.push_back({thorough_pool[trace_idx].x, thorough_pool[trace_idx].y});
-            trace_idx = thorough_pool[trace_idx].parent_idx;
+        selected_goal_idx = thorough_goal_idx;
+        selected_intercept_tau = thorough_intercept_tau;
+        using_thorough = true;
+    } else if (fast_goal_idx != -1) {
+        selected_goal_idx = fast_goal_idx;
+        selected_intercept_tau = fast_intercept_tau;
+        using_thorough = false;
+    }
+
+    if (selected_goal_idx != -1) {
+        int trace_idx = selected_goal_idx;
+        int t_min_cost, arrival_time;
+
+        if (using_thorough) {
+            while (trace_idx != -1) {
+                travel_path.push_back({thorough_pool[trace_idx].x, thorough_pool[trace_idx].y});
+                trace_idx = thorough_pool[trace_idx].parent_idx;
+            }
+            arrival_time = thorough_pool[selected_goal_idx].t;
+            t_min_cost = thorough_pool[selected_goal_idx].min_path_cost;
+        } else {
+            while (trace_idx != -1) {
+                travel_path.push_back({fast_pool[trace_idx].x, fast_pool[trace_idx].y});
+                trace_idx = fast_pool[trace_idx].parent_idx;
+            }
+            arrival_time = curr_time + fast_pool[selected_goal_idx].time_steps;
+            t_min_cost = fast_pool[selected_goal_idx].min_path_cost;
         }
-        std::reverse(travel_path.begin(), travel_path.end());
 
-        int arrival_time = thorough_pool[thorough_goal_idx].t;
-        int slack = best_intercept_tau - arrival_time;
-        int t_min_cost = thorough_pool[thorough_goal_idx].min_path_cost;
+        std::reverse(travel_path.begin(), travel_path.end()); 
 
+        int slack = selected_intercept_tau - arrival_time;
         if (slack > 0 && !travel_path.empty()) {
             auto it = travel_path.begin();
             for (; it != travel_path.end(); ++it) {
                 if (map[GETMAPINDEX(it->x, it->y, x_size, y_size)] == t_min_cost) break;
             }
             if (it == travel_path.end()) it = travel_path.end() - 1; 
-            travel_path.insert(it, slack, *it);
+            
+            // Safely duplicate the outpost node by making a copy before insert (prevents reference invalidation)
+            PathWaypoint wait_pos = *it;
+            travel_path.insert(it, slack, wait_pos); 
         }
     } 
-    else if (fast_goal_idx != -1) {
-        // Time limit hit or no better path found. Use Fast A* Fallback.
-        int trace_idx = fast_goal_idx;
-        while (trace_idx != 0 && trace_idx != -1) {  // Stop before start node (idx 0)
-            travel_path.push_back({fast_pool[trace_idx].x, fast_pool[trace_idx].y});
-            trace_idx = fast_pool[trace_idx].parent_idx;
-        }
-        std::reverse(travel_path.begin(), travel_path.end());
-    }
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
 
-    if (!travel_path.empty()) {
-        // Since we stop before trace_idx == 0, travel_path[0] is the very first step to take!
+    if (travel_path.size() > 1) {
+        // Remove the starting node so travel_path[0] strictly represents the next ACTION
+        travel_path.erase(travel_path.begin()); 
+        
         action_ptr[0] = travel_path[0].x; 
         action_ptr[1] = travel_path[0].y;
         
-        // ALWAYS Cache the path so the robot can move!
-        cached_path = std::move(travel_path);
-        cached_step_idx = 1; // Since we just took step 0
+        if (hit_time_limit) {
+            cached_path.clear();
+            cached_step_idx = 0;
+        } else {
+            cached_path = std::move(travel_path);
+            cached_step_idx = 1; // Since we just took step 0
+        }
 
         std::cout << "[anytime_astar] t=" << curr_time 
                   << " | time=" << duration_ms << "ms" << (hit_time_limit ? " [LIMIT]" : "")
-                  << " | fast_nodes=" << fast_nodes << " | thorough_nodes=" << thorough_nodes
                   << " | final_cost=" << best_total_cost 
-                  << " | route=" << (thorough_goal_idx != -1 ? "THOROUGH" : "FAST_FALLBACK")
+                  << " | route=" << (using_thorough ? "THOROUGH" : "FAST_FALLBACK")
                   << std::endl;
     } else {
         action_ptr[0] = robotposeX; action_ptr[1] = robotposeY;
